@@ -1,0 +1,16 @@
+# /etc/systemd/system/mini_scale_logger.service
+[Unit]
+Description=MiniScale weight logger
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/bb_mini_scales
+ExecStart=/usr/bin/python3 /home/pi/bb_mini_scales/mini_scale_logger.py -c /home/pi/bb_mini_scales/config.json
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
