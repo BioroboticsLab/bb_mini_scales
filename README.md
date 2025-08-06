@@ -51,12 +51,16 @@ Create a config.json (CLI flags override config values):
   "data_dir": "/home/pi/scale_data",
   "bus": 1,
   "addr": "0x26",
-  "interval": 1,
-  "no_tare": false,
-  "print": true,
+  "interval": 1.0,
   "name": "scaleA",
-  "calibration_mass_grams": 1000,
-  "calibration_mass_val": 1000
+  "print": false,
+  "tare_on_start": true,
+  "gap": null,
+  "set_filters": false,
+  "lp_filter_enabled": 1,
+  "avg_filter_level": 10,
+  "ema_filter_alpha": 10,
+  "sign": 1.0
 }
 ```
 
@@ -77,40 +81,75 @@ Override config via CLI
 python3 mini_scale_logger.py -c config.json --name scaleB --interval 1.0
 ```
 
+What ```test_and_calibrate_scale.py``` does:
+- Tare once, manually: Sends a hardware offset reset so the unloaded scale reads ~0 
+- Optional calibration with a known weight: Guides you through placing a known mass and programs the GAP (counts/gram) into the device.
+- Persistence: The GAP (calibration) is stored in non-volatile memory on the unit (survives power loss).
+The tare/offset is not persistent—after a power cycle you should tare again (e.g., run the tool once, or press the unit’s button if you use button-triggered taring in your logger).
+
 # Data info
 Daily CSV files are written to data/ by default (or data_dir from config):
 
 weight_data_[name_]YYYY-MM-DD.csv
 
-Each line: Time,Weight_g
+Each line: 
+Time, Weight_g, Weight_x100_g, RawADC
 
-Optional: install as a system service
+Note:  Measurements can simply use 'Weight_g'.  'Weight_x100_g' is the integer reading from the device; this and RawADC can be used to debug or error check if any values are off.
 
-This lets the logger start automatically on boot.
 
-# Setting up system service
-from the repo root:
-```bash
-chmod +x setup_system_service.sh
-sudo ./setup_system_service.sh \
-  --user pi \
-  --workdir /home/pi/bb_mini_scales \
-  --python /usr/bin/python3 \
-  --config /home/pi/bb_mini_scales/config.json \
-  --print
+# Install as a system service
+
+A sample unit file is included in the repo as mini_scale_logger.service:
+
+```
+# mini_scale_logger.service (example)
+[Unit]
+Description=MiniScale weight logger
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/bb_mini_scales
+ExecStart=/usr/bin/python3 /home/pi/bb_mini_scales/mini_scale_logger.py -c /home/pi/bb_mini_scales/config.json
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+
 ```
 
-Manage the service:
+Steps:
+1.	Edit the file in the repo to match your paths, user, and Python:
+	- User= / Group= (e.g., pi)
+	- WorkingDirectory= (e.g., /home/pi/bb_mini_scales)
+	- ExecStart= (ensure full paths to Python, script, and config)
+	
+2.	Install the service:
 
+From the repo directory where mini_scale_logger.service lives:
+```bash
+sudo cp mini_scale_logger.service /etc/systemd/system/mini_scale_logger.service
+sudo systemctl daemon-reload
+```
+
+3.	Enable on boot & start now:
+
+```bash
+sudo systemctl enable mini_scale_logger.service
+sudo systemctl start mini_scale_logger.service
+```
+
+4.	Manage / inspect:
+```bash
+sudo systemctl status mini_scale_logger.service
+sudo journalctl -u mini_scale_logger.service -f
 sudo systemctl restart mini_scale_logger.service
 sudo systemctl stop mini_scale_logger.service
-sudo systemctl enable mini_scale_logger.service   # start on boot
 sudo systemctl disable mini_scale_logger.service
-sudo systemctl status mini_scale_logger.service
+```
 
-
-# Notes
-- Readings are returned in grams, based on the calibration factor.
-- You will need to determine the calibration factor using a weight of known mass.  This is the difference in the sensor value before/after the weight is placed on.  Use 'test_scale.py' for a simple way to just read a few values
-- The logger performs a tare on startup by default. Use --no-tare to disable.
-
+Important: If you run the logger as a service and don’t want it to re-tare on every restart, set "tare_on_start": false in config.json. You can still tare manually (e.g., with test_and_calibrate_scale.py, or by pressing the unit’s button if your logger watches it).
