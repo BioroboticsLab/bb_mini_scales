@@ -107,6 +107,33 @@ def coerce_addr(addr_any) -> int:
         return int(addr_any, 0)
     return int(addr_any)
 
+# --- helpers to coerce JSON values to proper types ---
+def _coerce_bool(v):
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, str):
+        return v.strip().lower() in ("1", "true", "yes", "y", "on")
+    return bool(v)
+
+def _coerce_opt_float(v):
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    if isinstance(v, str):
+        s = v.strip().lower()
+        if s in ("none", "", "null"):
+            return None
+        return float(s)
+    # fallback
+    return None
+
+def _coerce_int(v, default=0):
+    try:
+        return int(v)
+    except Exception:
+        return default
+
 
 # -------
 # Main
@@ -121,21 +148,33 @@ def main():
 
     parser = argparse.ArgumentParser(description="Log weight from M5Stack U177 to daily CSVs.")
     parser.add_argument("-c", "--config", default=pre_args.config, help="Path to JSON config")
-    parser.add_argument("--data-dir", default=cfg["data_dir"])
-    parser.add_argument("--bus", type=int, default=cfg["bus"])
-    parser.add_argument("--addr", default=cfg["addr"], help="I2C address (e.g. 0x26)")
-    parser.add_argument("--interval", type=float, default=cfg["interval"])
-    parser.add_argument("--name", default=cfg["name"])
-    parser.add_argument("--print", action="store_true", default=cfg["print"])
-    parser.add_argument("--tare-on-start", action="store_true", default=cfg["tare_on_start"])
-    parser.add_argument("--gap", type=float, default=cfg["gap"],
-                        help="If provided, write GAP (counts/gram) on start.")
-    parser.add_argument("--set-filters", action="store_true", default=cfg["set_filters"])
-    parser.add_argument("--lp-filter-enabled", type=int, default=cfg["lp_filter_enabled"])
-    parser.add_argument("--avg-filter-level", type=int, default=cfg["avg_filter_level"])
-    parser.add_argument("--ema-filter-alpha", type=int, default=cfg["ema_filter_alpha"])
-    parser.add_argument("--sign", type=float, default=cfg["sign"],
+    parser.add_argument("--data-dir", default=cfg.get("data_dir", "data"))
+    parser.add_argument("--bus", type=int, default=_coerce_int(cfg.get("bus", 1)))
+    parser.add_argument("--addr", default=cfg.get("addr", "0x26"), help="I2C address (e.g. 0x26)")
+    parser.add_argument("--interval", type=float, default=float(cfg.get("interval", 1.0)))
+    parser.add_argument("--name", default=cfg.get("name", ""))
+
+    # booleans: default must be a real bool for action='store_true'
+    parser.add_argument("--print", action="store_true", default=_coerce_bool(cfg.get("print", False)))
+    parser.add_argument("--tare-on-start", action="store_true", default=_coerce_bool(cfg.get("tare_on_start", False)))
+    parser.add_argument("--set-filters", action="store_true", default=_coerce_bool(cfg.get("set_filters", False)))
+
+    # optional float (supports "None" string)
+    parser.add_argument(
+        "--gap",
+        type=float,
+        default=_coerce_opt_float(cfg.get("gap", None)),
+        help="If provided, write GAP (counts/gram) on start."
+    )
+
+    # numeric filter params
+    parser.add_argument("--lp-filter-enabled", type=int, default=_coerce_int(cfg.get("lp_filter_enabled", 1)))
+    parser.add_argument("--avg-filter-level", type=int, default=_coerce_int(cfg.get("avg_filter_level", 10)))
+    parser.add_argument("--ema-filter-alpha", type=int, default=_coerce_int(cfg.get("ema_filter_alpha", 10)))
+
+    parser.add_argument("--sign", type=float, default=float(cfg.get("sign", 1.0)),
                         help="Multiply final grams by this (use -1 for inverted sign).")
+
     args = parser.parse_args()
 
     addr = coerce_addr(args.addr)
